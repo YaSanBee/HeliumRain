@@ -68,7 +68,6 @@ void AFlarePlayerController::BeginPlay()
 
 	// Cockpit
 	SetupCockpit();
-	CockpitManager->SetupCockpit(this);
 
 	// Menu manager
 	SetupMenu();
@@ -278,33 +277,14 @@ void AFlarePlayerController::FlyShip(AFlareSpacecraft* Ship, bool PossessNow)
 	// Combat groups
 	Company->GetAI()->SetCurrentShipGroup(EFlareCombatGroup::AllMilitary);
 	Company->GetAI()->ResetShipGroup(EFlareCombatTactic::ProtectMe);
-	
-	// Count owned ships
-	int32 OwnedSpacecraftCount = 0;
-	TArray<AFlareSpacecraft*>& SectorSpacecrafts = GetGame()->GetActiveSector()->GetSpacecrafts();
-	for (int SpacecraftIndex = 0; SpacecraftIndex < SectorSpacecrafts.Num(); SpacecraftIndex++)
-	{
-		AFlareSpacecraft* OtherSpacecraft = SectorSpacecrafts[SpacecraftIndex];
-		if (OtherSpacecraft->GetParent()->GetCompany() == GetCompany())
-		{
-			OwnedSpacecraftCount++;
-		}
-	}
-
-	// Notification
-	FText Text = FText::Format(LOCTEXT("FlyingFormat", "Now flying {0}"), FText::FromName(Ship->GetParent()->GetImmatriculation()));
-	FText Info = (OwnedSpacecraftCount > 1) ? LOCTEXT("FlyingMultipleInfo", "You can switch to nearby ships with N.") : LOCTEXT("FlyingInfo", "You are now flying your personal ship.");
-	FFlareMenuParameterData Data;
-	Data.Spacecraft = Ship->GetParent();
-	Notify(Text, Info, "flying-info", EFlareNotification::NT_Info, 5.0f, EFlareMenu::MENU_Ship, Data);
-
-	// Update HUD
-	GetNavHUD()->OnTargetShipChanged();
-	SetSelectingWeapon();
 
 	// Set player ship
 	SetPlayerShip(ShipPawn->GetParent());
 	GetGame()->GetQuestManager()->OnFlyShip(Ship);
+
+	// Update HUD
+	GetNavHUD()->OnTargetShipChanged();
+	SetSelectingWeapon();
 }
 
 void AFlarePlayerController::ExitShip()
@@ -335,7 +315,6 @@ void AFlarePlayerController::SetCompanyDescription(const FFlareCompanyDescriptio
 void AFlarePlayerController::Load(const FFlarePlayerSave& SavePlayerData)
 {
 	PlayerData = SavePlayerData;
-	SelectedFleet = GetGame()->GetGameWorld()->FindFleet(PlayerData.SelectedFleetIdentifier);
 	Company = GetGame()->GetGameWorld()->FindCompany(PlayerData.CompanyIdentifier);
 }
 
@@ -430,14 +409,6 @@ void AFlarePlayerController::OnBattleStateChanged(EFlareSectorBattleState::Type 
 
 void AFlarePlayerController::Save(FFlarePlayerSave& SavePlayerData, FFlareCompanyDescription& SaveCompanyData)
 {
-	if (SelectedFleet)
-	{
-		PlayerData.SelectedFleetIdentifier = SelectedFleet->GetIdentifier();
-	}
-	else
-	{
-		PlayerData.SelectedFleetIdentifier = NAME_None;
-	}
 	SavePlayerData = PlayerData;
 	SaveCompanyData = CompanyData;
 }
@@ -458,12 +429,10 @@ void AFlarePlayerController::Clean()
 	PlayerData.ScenarioId = 0;
 	PlayerData.CompanyIdentifier = NAME_None;
 	PlayerData.LastFlownShipIdentifier = NAME_None;
-	PlayerData.SelectedFleetIdentifier = NAME_None;
 
 	ShipPawn = NULL;
 	PlayerShip = NULL;
 	Company = NULL;
-	SelectedFleet = NULL;
 
 	CurrentObjective.Set = false;
 	CurrentObjective.Version = 0;
@@ -472,25 +441,32 @@ void AFlarePlayerController::Clean()
 	TimeSinceWeaponSwitch = 0;
 
 	LastBattleState = EFlareSectorBattleState::NoBattle;
+
+	MenuManager->FlushNotifications();
 }
+
 
 /*----------------------------------------------------
 	Menus
 ----------------------------------------------------*/
 
-void AFlarePlayerController::Notify(FText Title, FText Info, FName Tag, EFlareNotification::Type Type, float Timeout, EFlareMenu::Type TargetMenu, FFlareMenuParameterData TargetInfo)
+void AFlarePlayerController::Notify(FText Title, FText Info, FName Tag, EFlareNotification::Type Type, bool Pinned, EFlareMenu::Type TargetMenu, FFlareMenuParameterData TargetInfo)
 {
 	FLOGV("AFlarePlayerController::Notify : '%s'", *Title.ToString());
-	MenuManager->Notify(Title, Info, Tag, Type, Timeout, TargetMenu, TargetInfo);
+	MenuManager->Notify(Title, Info, Tag, Type, Pinned, TargetMenu, TargetInfo);
 }
 
 void AFlarePlayerController::SetupCockpit()
 {
-	FActorSpawnParameters SpawnInfo;
-	SpawnInfo.Owner = this;
-	SpawnInfo.Instigator = Instigator;
-	SpawnInfo.ObjectFlags |= RF_Transient;
-	CockpitManager = GetWorld()->SpawnActor<AFlareCockpitManager>(AFlareCockpitManager::StaticClass(), SpawnInfo);
+	if (!CockpitManager)
+	{
+		FActorSpawnParameters SpawnInfo;
+		SpawnInfo.Owner = this;
+		SpawnInfo.Instigator = Instigator;
+		SpawnInfo.ObjectFlags |= RF_Transient;
+		CockpitManager = GetWorld()->SpawnActor<AFlareCockpitManager>(AFlareCockpitManager::StaticClass(), SpawnInfo);
+	}
+	CockpitManager->SetupCockpit(this);
 }
 
 void AFlarePlayerController::SetupMenu()
@@ -533,6 +509,7 @@ void AFlarePlayerController::OnEnterMenu()
 		MenuPawn->SetActorHiddenInGame(false);
 	}
 
+	GetGame()->GetPlanetarium()->SetActorHiddenInGame(true);
 	GetNavHUD()->UpdateHUDVisibility();
 }
 
@@ -558,6 +535,7 @@ void AFlarePlayerController::OnExitMenu()
 	{
 		GetNavHUD()->UpdateHUDVisibility();
 	}
+	GetGame()->GetPlanetarium()->SetActorHiddenInGame(false);
 }
 
 void AFlarePlayerController::SetWorldPause(bool Pause)
@@ -569,24 +547,6 @@ void AFlarePlayerController::SetWorldPause(bool Pause)
 		GetGame()->SetWorldPause(Pause);
 		GetGame()->GetActiveSector()->SetPause(Pause);
 	}
-}
-
-void AFlarePlayerController::SelectFleet(UFlareFleet* Fleet)
-{
-	if (Fleet == NULL)
-	{
-		FLOG("Select no fleet");
-	}
-	else
-	{
-		FLOGV("Select fleet %s : %s", *Fleet->GetIdentifier().ToString(), *Fleet->GetFleetName().ToString());
-	}
-	SelectedFleet = Fleet;
-}
-
-UFlareFleet* AFlarePlayerController::GetSelectedFleet()
-{
-	return SelectedFleet;
 }
 
 UFlareFleet* AFlarePlayerController::GetPlayerFleet()
@@ -639,7 +599,7 @@ bool AFlarePlayerController::SwitchToNextShip(bool Instant)
 			// Switch to the found ship
 			if (SeletedCandidate)
 			{
-				FLOG("AFlarePlayerController::SwitchToNextShip : found new ship");
+				FLOGV("AFlarePlayerController::SwitchToNextShip : found new ship %s", *SeletedCandidate->GetImmatriculation().ToString());
 				QuickSwitchNextOffset = OffsetIndex + 1;
 				// Disable pilot during the switch
 				SeletedCandidate->GetStateManager()->EnablePilot(false);
@@ -726,7 +686,7 @@ void AFlarePlayerController::NotifyDockingResult(bool Success, UFlareSimulatedSp
 				FText::FromName(Target->GetImmatriculation())),
 			"docking-granted",
 			EFlareNotification::NT_Info,
-			10.0f);
+			false);
 	}
 	else
 	{
@@ -735,7 +695,7 @@ void AFlarePlayerController::NotifyDockingResult(bool Success, UFlareSimulatedSp
 			FText::Format(LOCTEXT("DockingDeniedInfoFormat", "{0} denied your docking request"), FText::FromName(Target->GetImmatriculation())),
 			"docking-denied",
 			EFlareNotification::NT_Info,
-			10.0f);
+			false);
 	}
 }
 
@@ -769,7 +729,6 @@ const FFlarePlayerObjective* AFlarePlayerController::GetCurrentObjective() const
 {
 	return (CurrentObjective.Set? &CurrentObjective : NULL);
 }
-
 
 
 /*----------------------------------------------------
@@ -845,7 +804,7 @@ void AFlarePlayerController::MousePositionInput(FVector2D Val)
 
 void AFlarePlayerController::ToggleCamera()
 {
-	if (ShipPawn && ShipPawn->GetParent()->GetDamageSystem()->IsAlive())
+	if (ShipPawn && ShipPawn->GetParent()->GetDamageSystem()->IsAlive() && !MenuManager->IsUIOpen())
 	{
 		SetExternalCamera(!ShipPawn->GetStateManager()->IsExternalCamera());
 	}
@@ -1277,11 +1236,6 @@ UFlareSimulatedSpacecraft* AFlarePlayerController::GetPlayerShip()
 	else if (GameWorld)
 	{
 		Result = GameWorld->FindSpacecraft(PlayerData.LastFlownShipIdentifier);
-	}
-
-	if (!Result)
-	{
-		FLOG("AFlarePlayerController::GetPlayerShip : no player ship !");
 	}
 
 	return Result;

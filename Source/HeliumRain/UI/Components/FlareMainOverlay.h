@@ -34,7 +34,7 @@ public:
 	void AddMenuLink(EFlareMenu::Type Menu);
 
 	/** Setup a button */
-	void SetupMenuLink(TSharedPtr<SFlareButton> Button, const FSlateBrush* Icon, FText Text);
+	void SetupMenuLink(TSharedPtr<SFlareButton> Button, const FSlateBrush* Icon, FText Text, bool Small = false);
 
 
 	/*----------------------------------------------------
@@ -57,17 +57,26 @@ public:
 	
 	void Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime) override;
 	
+	/** Are the main buttons visible */
+	EVisibility GetGameButtonVisibility() const;
+
 	/** Can we go back */
 	bool IsBackDisabled() const;
+
+	/** Can we close the overlay */
+	bool IsCloseDisabled() const;
+
+	/** Get icon for the close button */
+	const FSlateBrush* GetCloseIcon() const;
 
 	/** Get the name of the current menu */
 	FText GetCurrentMenuName() const;
 
 	/** Get the icon of the current menu */
 	const FSlateBrush* GetCurrentMenuIcon() const;
-
-	/** Get the spacecraft info text */
-	FText GetSpacecraftInfo() const;
+	
+	/** Get the player info text */
+	FText GetPlayerInfo() const;
 
 	/** Switch menu */
 	void OnOpenMenu(EFlareMenu::Type Menu);
@@ -88,6 +97,10 @@ protected:
 	// Menu manager
 	UPROPERTY()
 	TWeakObjectPtr<class AFlareMenuManager>         MenuManager;
+	
+	// Blur material
+	UPROPERTY()
+	UMaterialInstanceDynamic*                       BlurMaterial;
 
 	// General data
 	bool                                            IsOverlayVisible;
@@ -96,6 +109,7 @@ protected:
 
 	// Slate data
 	TSharedPtr<SBorder>                             Background;
+	TSharedPtr<SImage>                              Border;
 	TSharedPtr<SHorizontalBox>                      MenuList;
 
 

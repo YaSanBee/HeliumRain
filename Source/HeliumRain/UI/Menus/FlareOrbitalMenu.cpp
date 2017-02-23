@@ -23,6 +23,7 @@ void SFlareOrbitalMenu::Construct(const FArguments& InArgs)
 	const FFlareStyleCatalog& Theme = FFlareStyleSet::GetDefaultTheme();
 	Game = MenuManager->GetPC()->GetGame();
 	FastForwardPeriod = 0.5f;
+	FastForwardStopRequested = false;
 
 	// Build structure
 	ChildSlot
@@ -174,7 +175,7 @@ void SFlareOrbitalMenu::Enter()
 
 	UpdateMap();
 
-	Game->SaveGame(MenuManager->GetPC());
+	Game->SaveGame(MenuManager->GetPC(), true);
 }
 
 void SFlareOrbitalMenu::Exit()
@@ -195,15 +196,24 @@ void SFlareOrbitalMenu::Exit()
 void SFlareOrbitalMenu::StopFastForward()
 {
 	TimeSinceFastForward = 0;
+	FastForwardStopRequested = false;
 	FastForward->SetActive(false);
 
 	if (FastForwardActive)
 	{
+		FLOG("Stop fast forward");
 		FastForwardActive = false;
-		Game->SaveGame(MenuManager->GetPC());
+		Game->SaveGame(MenuManager->GetPC(), true);
 		Game->ActivateCurrentSector();
 	}
 }
+
+void SFlareOrbitalMenu::RequestStopFastForward()
+{
+	FLOG("Stop fast forward requested");
+	FastForwardStopRequested = true;
+}
+
 
 void SFlareOrbitalMenu::Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime)
 {
@@ -234,7 +244,7 @@ void SFlareOrbitalMenu::Tick(const FGeometry& AllottedGeometry, const double InC
 					FText::Format(LOCTEXT("BattleStateChangeFormat", "The military status of {0} has changed !"), Sector->GetSectorName()),
 					FName("battle-state-changed"),
 					EFlareNotification::NT_Military,
-					10.0f,
+					false,
 					EFlareMenu::MENU_Sector,
 					Data);
 
@@ -247,13 +257,20 @@ void SFlareOrbitalMenu::Tick(const FGeometry& AllottedGeometry, const double InC
 		}
 
 		// Fast forward every FastForwardPeriod
+		TimeSinceFastForward += InDeltaTime;
 		if (FastForwardActive)
 		{
-			TimeSinceFastForward += InDeltaTime;
+
+
 			if (TimeSinceFastForward > FastForwardPeriod)
 			{
 				MenuManager->GetGame()->GetGameWorld()->FastForward();
 				TimeSinceFastForward = 0;
+			}
+
+			if(FastForwardStopRequested)
+			{
+				StopFastForward();
 			}
 		}
 	}
@@ -577,6 +594,13 @@ void SFlareOrbitalMenu::OnFastForwardClicked()
 {
 	if (FastForward->IsActive())
 	{
+		if(!FastForwardActive && TimeSinceFastForward < FastForwardPeriod)
+		{
+			// Avoid too fast double fast forward
+			FastForward->SetActive(false);
+			return;
+		}
+
 		bool BattleInProgress = false;
 		bool BattleLostWithRetreat = false;
 		bool BattleLostWithoutRetreat = false;
@@ -624,15 +648,17 @@ void SFlareOrbitalMenu::OnFastForwardClicked()
 	}
 	else
 	{
-		FastForwardActive = false;
+		StopFastForward();
 	}
 }
 
 
 void SFlareOrbitalMenu::OnFastForwardConfirmed()
 {
+	FLOG("Start fast forward");
 	FastForwardActive = true;
-	Game->SaveGame(MenuManager->GetPC());
+	FastForwardStopRequested = false;
+	Game->SaveGame(MenuManager->GetPC(), true);
 	Game->DeactivateSector();
 }
 

@@ -142,14 +142,13 @@ void SFlareSpacecraftInfo::Construct(const FArguments& InArgs)
 							.Width(4)
 						]
 
-						// Select this ship
+						// Upgrade
 						+ SHorizontalBox::Slot()
 						.AutoWidth()
 						[
-							SAssignNew(SelectButton, SFlareButton)
-							.Text(LOCTEXT("ShipSelect", "SELECT"))
-							.HelpText(LOCTEXT("ShipSelectInfo", "Use this ship for orital navigation"))
-							.OnClicked(this, &SFlareSpacecraftInfo::OnSelect)
+							SAssignNew(UpgradeButton, SFlareButton)
+							.Text(LOCTEXT("Upgrade", "UPGRADE"))
+							.OnClicked(this, &SFlareSpacecraftInfo::OnUpgrade)
 							.Width(4)
 						]
 
@@ -178,17 +177,7 @@ void SFlareSpacecraftInfo::Construct(const FArguments& InArgs)
 							SAssignNew(TradeButton, SFlareButton)
 							.Text(LOCTEXT("Trade", "TRADE"))
 							.OnClicked(this, &SFlareSpacecraftInfo::OnTrade)
-							.Width(3)
-						]
-
-						// Upgrade
-						+ SHorizontalBox::Slot()
-						.AutoWidth()
-						[
-							SAssignNew(UpgradeButton, SFlareButton)
-							.Text(LOCTEXT("Upgrade", "UPGRADE"))
-							.OnClicked(this, &SFlareSpacecraftInfo::OnUpgrade)
-							.Width(3)
+							.Width(4)
 						]
 			
 						// Dock here
@@ -199,7 +188,7 @@ void SFlareSpacecraftInfo::Construct(const FArguments& InArgs)
 							.Text(LOCTEXT("Dock", "DOCK HERE"))
 							.HelpText(LOCTEXT("DockInfo", "Try to dock at this spacecraft"))
 							.OnClicked(this, &SFlareSpacecraftInfo::OnDockAt)
-							.Width(3)
+							.Width(4)
 						]
 
 						// Undock
@@ -210,7 +199,7 @@ void SFlareSpacecraftInfo::Construct(const FArguments& InArgs)
 							.Text(LOCTEXT("Undock", "UNDOCK"))
 							.HelpText(LOCTEXT("UndockInfo", "Undock from this spacecraft and go back to flying the ship"))
 							.OnClicked(this, &SFlareSpacecraftInfo::OnUndock)
-							.Width(3)
+							.Width(4)
 						]
 
 						// Scrap
@@ -220,7 +209,7 @@ void SFlareSpacecraftInfo::Construct(const FArguments& InArgs)
 							SAssignNew(ScrapButton, SFlareButton)
 							.Text(LOCTEXT("Scrap", "SCRAP"))
 							.OnClicked(this, &SFlareSpacecraftInfo::OnScrap)
-							.Width(3)
+							.Width(4)
 						]
 					]
 				]
@@ -320,7 +309,6 @@ void SFlareSpacecraftInfo::Show()
 		UpgradeButton->SetVisibility(EVisibility::Collapsed);
 		TradeButton->SetVisibility(EVisibility::Collapsed);
 		FlyButton->SetVisibility(EVisibility::Collapsed);
-		SelectButton->SetVisibility(EVisibility::Collapsed);
 		DockButton->SetVisibility(EVisibility::Collapsed);
 		UndockButton->SetVisibility(EVisibility::Collapsed);
 		ScrapButton->SetVisibility(EVisibility::Collapsed);
@@ -347,8 +335,8 @@ void SFlareSpacecraftInfo::Show()
 		// Permissions
 		bool CanDock =     !IsDocked && IsFriendly && ActiveTargetSpacecraft && ActiveTargetSpacecraft->GetDockingSystem()->HasCompatibleDock(PlayerShip->GetActive());
 		bool CanUpgrade =  Owned && !IsStation && (IsDocked || (IsRemoteFlying && TargetSpacecraft->GetCurrentSector()->CanUpgrade(TargetSpacecraft->GetCompany())));
-		bool CanTrade =    Owned && !IsStation && (IsDocked || (IsRemoteFlying && TargetSpacecraft->GetDescription()->CargoBayCount > 0));
-		bool CanScrap =    Owned && !IsStation && IsRemoteFlying && TargetSpacecraft->GetCurrentSector()->CanUpgrade(TargetSpacecraft->GetCompany());
+		bool CanTrade =    Owned && !IsStation && (IsDocked || IsRemoteFlying) && TargetSpacecraft->GetDescription()->CargoBayCount > 0;
+		bool CanScrap =    CanUpgrade && OwnedAndNotSelf;
 
 		FLOGV("SFlareSpacecraftInfo::Show : CanDock = %d CanUpgrade = %d CanTrade = %d",
 			CanDock, CanUpgrade, CanTrade);
@@ -370,16 +358,15 @@ void SFlareSpacecraftInfo::Show()
 		CargoBay->SetVisibility(CargoBay->NumSlots() > 0 ? EVisibility::Visible : EVisibility::Collapsed);
 
 		// Upper line
-		InspectButton->SetVisibility(NoInspect ? EVisibility::Collapsed : EVisibility::Visible);
-		SelectButton->SetVisibility(!Owned || IsStation ? EVisibility::Collapsed : EVisibility::Visible);
-		FlyButton->SetVisibility(!Owned || IsStation ? EVisibility::Collapsed : EVisibility::Visible);
+		InspectButton->SetVisibility(NoInspect ?           EVisibility::Collapsed : EVisibility::Visible);
+		FlyButton->SetVisibility(!Owned || IsStation ?     EVisibility::Collapsed : EVisibility::Visible);
 
 		// Second line
-		TradeButton->SetVisibility(CanTrade ? EVisibility::Visible : EVisibility::Collapsed);
-		UpgradeButton->SetVisibility(Owned && !IsStation ? EVisibility::Visible : EVisibility::Collapsed);
-		DockButton->SetVisibility(CanDock && !IsRemoteFlying ? EVisibility::Visible : EVisibility::Collapsed);
-		UndockButton->SetVisibility(IsDocked && !IsRemoteFlying ? EVisibility::Visible : EVisibility::Collapsed);
-		ScrapButton->SetVisibility(IsStation ? EVisibility::Collapsed : EVisibility::Visible);
+		TradeButton->SetVisibility(CanTrade ?                              EVisibility::Visible : EVisibility::Collapsed);
+		UpgradeButton->SetVisibility(Owned && !IsStation ?                 EVisibility::Visible : EVisibility::Collapsed);
+		DockButton->SetVisibility(CanDock && !IsRemoteFlying ?             EVisibility::Visible : EVisibility::Collapsed);
+		UndockButton->SetVisibility(Owned && IsDocked && !IsRemoteFlying ? EVisibility::Visible : EVisibility::Collapsed);
+		ScrapButton->SetVisibility(Owned && !IsStation ?                   EVisibility::Visible : EVisibility::Collapsed);
 
 		// Flyable ships : disable when not flyable
 		FText Reason;
@@ -399,16 +386,27 @@ void SFlareSpacecraftInfo::Show()
 			FlyButton->SetDisabled(false);
 		}
 
-		// Select button
-		SelectButton->SetHelpText(LOCTEXT("ShipSelectInfo", "Select this spacecraft's fleet"));
-		SelectButton->SetDisabled(false);
-
+		if(TargetSpacecraft->IsTrading())
+		{
+			UndockButton->SetHelpText(LOCTEXT("ShipTradingUndockInfo", "Wait trading end before undock"));
+			UndockButton->SetDisabled(true);
+		}
+		else
+		{
+			UndockButton->SetHelpText(LOCTEXT("ShipUndockInfo", "Undock the ship"));
+			UndockButton->SetDisabled(false);
+		}
 
 		// Disable trade while flying unless docked
-		if (IsRemoteFlying || IsDocked)
+		if (IsRemoteFlying || (IsDocked && !TargetSpacecraft->IsTrading()))
 		{
 			TradeButton->SetHelpText(LOCTEXT("TradeInfo", "Trade with this spacecraft"));
 			TradeButton->SetDisabled(false);
+		}
+		else if (IsDocked && TargetSpacecraft->IsTrading())
+		{
+			TradeButton->SetHelpText(LOCTEXT("CantTradeInfo", "Trading in progress"));
+			TradeButton->SetDisabled(true);
 		}
 		else
 		{
@@ -500,16 +498,6 @@ void SFlareSpacecraftInfo::OnFly()
 		FFlareMenuParameterData Data;
 		Data.Spacecraft = TargetSpacecraft;
 		PC->GetMenuManager()->OpenMenu(EFlareMenu::MENU_FlyShip, Data);
-	}
-}
-
-void SFlareSpacecraftInfo::OnSelect()
-{
-	FText Unused;
-	if (PC && TargetSpacecraft && TargetSpacecraft->CanBeFlown(Unused))
-	{
-		PC->SelectFleet(TargetSpacecraft->GetCurrentFleet());
-		PC->GetMenuManager()->OpenMenu(EFlareMenu::MENU_Orbit);
 	}
 }
 
@@ -669,9 +657,21 @@ FText SFlareSpacecraftInfo::GetSpacecraftInfo() const
 
 	if (TargetSpacecraft)
 	{
-		UFlareCompany* TargetCompany = TargetSpacecraft->GetCompany();
-
+		// Get the object's distance
+		FText DistanceText;
+		if (PC->GetPlayerShip() && PC->GetPlayerShip() != TargetSpacecraft)
+		{
+			AFlareSpacecraft* PlayerShipPawn = PC->GetPlayerShip()->GetActive();
+			AFlareSpacecraft* TargetSpacecraftPawn = TargetSpacecraft->GetActive();
+			if (PlayerShipPawn && TargetSpacecraftPawn)
+			{
+				float Distance = (PlayerShipPawn->GetActorLocation() - TargetSpacecraftPawn->GetActorLocation()).Size();
+				DistanceText = FText::FromString(AFlareHUD::FormatDistance(Distance / 100) + " - ");
+			}
+		}
+		
 		// Our company
+		UFlareCompany* TargetCompany = TargetSpacecraft->GetCompany();
 		if (TargetCompany && PC && TargetCompany == PC->GetCompany())
 		{
 			// Station : show production, if simulated
@@ -692,7 +692,9 @@ FText SFlareSpacecraftInfo::GetSpacecraftInfo() const
 						Factory->GetFactoryStatus());
 				}
 
-				return ProductionStatusText;
+				return FText::Format(LOCTEXT("StationInfoFormat", "{0}{1}"),
+					DistanceText,
+					ProductionStatusText);
 			}
 
 			// Ship : show fleet info
@@ -701,11 +703,15 @@ FText SFlareSpacecraftInfo::GetSpacecraftInfo() const
 				UFlareFleet* Fleet = TargetSpacecraft->GetCurrentFleet();
 				if (Fleet)
 				{
-					return FText::Format(LOCTEXT("FleetFormat", "{0} - {1} ({2} / {3})"),
+					FText SpacecraftDescriptionText = FText::Format(LOCTEXT("FleetFormat", "{0} - {1} ({2} / {3})"),
 						Fleet->GetStatusInfo(),
 						Fleet->GetFleetName(),
 						FText::AsNumber(Fleet->GetShipCount()),
 						FText::AsNumber(Fleet->GetMaxShipCount()));
+
+					return FText::Format(LOCTEXT("SpacecraftInfoFormat", "{0}{1}"),
+						DistanceText,
+						SpacecraftDescriptionText);
 				}
 				return FText();
 			}
@@ -714,7 +720,8 @@ FText SFlareSpacecraftInfo::GetSpacecraftInfo() const
 		// Other company
 		else
 		{
-			return FText::Format(LOCTEXT("OwnedByFormat", "Owned by {0} ({1})"),
+			return FText::Format(LOCTEXT("OwnedByFormat", "{0}Owned by {1} ({2})"),
+				DistanceText,
 				TargetCompany->GetCompanyName(),
 				TargetCompany->GetPlayerHostilityText());
 		}

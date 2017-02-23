@@ -5,6 +5,7 @@
 #include "FlareGame.h"
 #include "../Player/FlarePlayerController.h"
 #include "FlareCompany.h"
+#include "FlareSectorHelper.h"
 
 #define LOCTEXT_NAMESPACE "FlareGameTools"
 
@@ -373,7 +374,6 @@ void UFlareGameTools::TakeCompanyControl(FName CompanyShortName)
 	FFlarePlayerSave SavePlayerData;
 	SavePlayerData.CompanyIdentifier = Company->GetIdentifier();
 	SavePlayerData.LastFlownShipIdentifier = NAME_None;
-	SavePlayerData.SelectedFleetIdentifier = NAME_None;
 	GetGame()->GetPC()->Load(SavePlayerData);
 }
 
@@ -610,7 +610,7 @@ void UFlareGameTools::AddToTradeRoute(FName TradeRouteIdentifier, FName FleetIde
 		return;
 	}
 
-	TradeRoute->AddFleet(Fleet);
+	TradeRoute->AssignFleet(Fleet);
 }
 
 
@@ -972,12 +972,6 @@ void UFlareGameTools::GiveResources(FName ShipImmatriculation, FName ResourceIde
 		return;
 	}
 
-	if (GetActiveSector())
-	{
-		FLOG("AFlareGame::GiveResources failed: a sector is active");
-		return;
-	}
-
 	FFlareResourceDescription* Resource = GetGame()->GetResourceCatalog()->Get(ResourceIdentifier);
 	if (!Resource)
 	{
@@ -1095,7 +1089,8 @@ void UFlareGameTools::TransferResources(FName SourceImmatriculation, FName Desti
 		return;
 	}
 
-	SourceSpacecraft->GetCurrentSector()->TransfertResources(SourceSpacecraft, DestinationSpacecraft, Resource, Quantity);
+
+	SectorHelper::Trade(SourceSpacecraft, DestinationSpacecraft, Resource, Quantity);
 }
 
 /*----------------------------------------------------

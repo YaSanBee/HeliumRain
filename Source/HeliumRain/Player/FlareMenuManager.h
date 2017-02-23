@@ -19,6 +19,7 @@ class SFlareNewGameMenu;
 class SFlareStoryMenu;
 class SFlareShipMenu;
 class SFlareFleetMenu;
+class SFlareQuestMenu;
 class SFlareOrbitalMenu;
 class SFlareLeaderboardMenu;
 class SFlareCompanyMenu;
@@ -84,8 +85,11 @@ public:
 	void Back();
 
 	/** Show a notification to the user */
-	void Notify(FText Text, FText Info, FName Tag, EFlareNotification::Type Type = EFlareNotification::NT_Objective, float Timeout = 5, EFlareMenu::Type TargetMenu = EFlareMenu::MENU_None, FFlareMenuParameterData TargetInfo = FFlareMenuParameterData());
-	
+	void Notify(FText Text, FText Info, FName Tag, EFlareNotification::Type Type = EFlareNotification::NT_Objective, bool Pinned = false, EFlareMenu::Type TargetMenu = EFlareMenu::MENU_None, FFlareMenuParameterData TargetInfo = FFlareMenuParameterData());
+
+	/** Remove all notifications from the screen */
+	void FlushNotifications();
+
 	/** Show the confirmation overlay */
 	void Confirm(FText Title, FText Text, FSimpleDelegate OnConfirmed);
 
@@ -113,9 +117,6 @@ protected:
 	
 	/** After a fading process has completed, proceed */
 	void ProcessNextMenu();
-
-	/** Remvoe all notifications from the screen */
-	void FlushNotifications();
 
 	/** Target menu was correctly entered */
 	void OnEnterMenu(bool LightBackground = true, bool ShowOverlay = true, bool TellPlayer = true);
@@ -164,6 +165,9 @@ protected:
 	/** Show the fleet menu */
 	void OpenFleetMenu();
 
+	/** Show the quest menu */
+	void OpenQuestMenu();
+
 	/** Open the sector menu */
 	void OpenSector();
 
@@ -202,7 +206,7 @@ public:
 	static FText GetMenuName(EFlareMenu::Type MenuType);
 
 	/** Get the Slate icon brush for this menu */
-	static const FSlateBrush* GetMenuIcon(EFlareMenu::Type MenuType, bool ButtonVersion = false);
+	static const FSlateBrush* GetMenuIcon(EFlareMenu::Type MenuType);
 
 	/** Is UI visible */
 	bool IsUIOpen() const;
@@ -225,20 +229,23 @@ public:
 	/** Which menu, if any, is opened ? */
 	EFlareMenu::Type GetCurrentMenu() const;
 
+	/** Which menu, if any, is coming next ? */
+	EFlareMenu::Type GetNextMenu() const;
+
 	/** Get the PC */
 	AFlarePlayerController* GetPC() const;
 
 	/** Get the game */
 	AFlareGame* GetGame() const;
 
-	/** Get the menu manager */
-	static AFlareMenuManager* GetSingleton();
+	/** Get the spacecraft menu */
+	TSharedPtr<SFlareShipMenu> GetShipMenu() const;
 
 	/** Get the height of the main overlay */
 	static int32 GetMainOverlayHeight();
 
-	/** Get the spacecraft menu */
-	TSharedPtr<SFlareShipMenu> GetShipMenu();
+	/** Get the menu manager */
+	static AFlareMenuManager* GetSingleton();
 
 
 protected:
@@ -274,6 +281,7 @@ protected:
 	TSharedPtr<SFlareStoryMenu>             StoryMenu;
 	TSharedPtr<SFlareShipMenu>              ShipMenu;
 	TSharedPtr<SFlareFleetMenu>             FleetMenu;
+	TSharedPtr<SFlareQuestMenu>             QuestMenu;
 	TSharedPtr<SFlareOrbitalMenu>           OrbitMenu;
 	TSharedPtr<SFlareLeaderboardMenu>       LeaderboardMenu;
 	TSharedPtr<SFlareCompanyMenu>           CompanyMenu;

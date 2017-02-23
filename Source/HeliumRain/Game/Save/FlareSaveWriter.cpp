@@ -41,7 +41,6 @@ TSharedRef<FJsonObject> UFlareSaveWriter::SavePlayer(FFlarePlayerSave* Data)
 	JsonObject->SetStringField("ScenarioId", FormatInt32(Data->ScenarioId));
 	JsonObject->SetStringField("CompanyIdentifier", Data->CompanyIdentifier.ToString());
 	JsonObject->SetStringField("LastFlownShipIdentifier", Data->LastFlownShipIdentifier.ToString());
-	JsonObject->SetStringField("SelectedFleetIdentifier", Data->SelectedFleetIdentifier.ToString());
 	JsonObject->SetObjectField("Quest", SaveQuest(&Data->QuestData));
 
 	return JsonObject;
@@ -96,7 +95,7 @@ TSharedRef<FJsonObject> UFlareSaveWriter::SaveQuestProgress(FFlareQuestProgressS
 	{
 		SuccessfullSteps.Add(MakeShareable(new FJsonValueString(Data->SuccessfullSteps[i].ToString())));
 	}
-	JsonObject->SetArrayField("SuccessfulQuests", SuccessfullSteps);
+	JsonObject->SetArrayField("SuccessfullSteps", SuccessfullSteps);
 
 	TArray< TSharedPtr<FJsonValue> > CurrentStepProgress;
 	for(int i = 0; i < Data->CurrentStepProgress.Num(); i++)
@@ -255,6 +254,7 @@ TSharedRef<FJsonObject> UFlareSaveWriter::SaveSpacecraft(FFlareSpacecraftSave* D
 	JsonObject->SetStringField("DynamicComponentStateIdentifier", Data->DynamicComponentStateIdentifier.ToString());
 	SaveFloat(JsonObject,"DynamicComponentStateProgress", Data->DynamicComponentStateProgress);
 	JsonObject->SetStringField("Level", FormatInt32(Data->Level));
+	JsonObject->SetBoolField("IsTrading", Data->IsTrading);
 	JsonObject->SetObjectField("Pilot", SavePilot(&Data->Pilot));
 	JsonObject->SetObjectField("Asteroid", SaveAsteroid(&Data->AsteroidData));
 
@@ -361,6 +361,18 @@ TSharedRef<FJsonObject> UFlareSaveWriter::SaveTurretPilot(FFlareTurretPilotSave*
 	return JsonObject;
 }
 
+TSharedRef<FJsonObject> UFlareSaveWriter::SaveTradeOperation(FFlareTradeRouteSectorOperationSave* Data)
+{
+	TSharedRef<FJsonObject> JsonObject = MakeShareable(new FJsonObject());
+
+	JsonObject->SetStringField("ResourceIdentifier", Data->ResourceIdentifier.ToString());
+	JsonObject->SetStringField("MaxQuantity", FormatInt32(Data->MaxQuantity));
+	JsonObject->SetStringField("MaxWait", FormatInt32(Data->MaxWait));
+	JsonObject->SetStringField("Type", FormatEnum<EFlareTradeRouteOperation::Type>("EFlareTradeRouteOperation",Data->Type));
+
+	return JsonObject;
+}
+
 TSharedRef<FJsonObject> UFlareSaveWriter::SaveCargo(FFlareCargoSave* Data)
 {
 	TSharedRef<FJsonObject> JsonObject = MakeShareable(new FJsonObject());
@@ -429,14 +441,12 @@ TSharedRef<FJsonObject> UFlareSaveWriter::SaveTradeRoute(FFlareTradeRouteSave* D
 
 	JsonObject->SetStringField("Name", Data->Name.ToString());
 	JsonObject->SetStringField("Identifier", Data->Identifier.ToString());
-
-	TArray< TSharedPtr<FJsonValue> > FleetIdentifiers;
-	for(int i = 0; i < Data->FleetIdentifiers.Num(); i++)
-	{
-		FleetIdentifiers.Add(MakeShareable(new FJsonValueString(Data->FleetIdentifiers[i].ToString())));
-	}
-	JsonObject->SetArrayField("FleetIdentifiers", FleetIdentifiers);
-
+	JsonObject->SetStringField("FleetIdentifier", Data->FleetIdentifier.ToString());
+	JsonObject->SetStringField("TargetSectorIdentifier", Data->TargetSectorIdentifier.ToString());
+	JsonObject->SetStringField("CurrentOperationIndex", FormatInt32(Data->CurrentOperationIndex));
+	JsonObject->SetStringField("CurrentOperationProgress", FormatInt32(Data->CurrentOperationProgress));
+	JsonObject->SetStringField("CurrentOperationDuration", FormatInt32(Data->CurrentOperationDuration));
+	JsonObject->SetBoolField("IsPaused", Data->IsPaused);
 
 	TArray< TSharedPtr<FJsonValue> > Sectors;
 	for(int i = 0; i < Data->Sectors.Num(); i++)
@@ -455,19 +465,12 @@ TSharedRef<FJsonObject> UFlareSaveWriter::SaveTradeRouteSector(FFlareTradeRouteS
 	JsonObject->SetStringField("SectorIdentifier", Data->SectorIdentifier.ToString());
 
 
-	TArray< TSharedPtr<FJsonValue> > ResourcesToLoad;
-	for(int i = 0; i < Data->ResourcesToLoad.Num(); i++)
+	TArray< TSharedPtr<FJsonValue> > Operations;
+	for(int i = 0; i < Data->Operations.Num(); i++)
 	{
-		ResourcesToLoad.Add(MakeShareable(new FJsonValueObject(SaveCargo(&Data->ResourcesToLoad[i]))));
+		Operations.Add(MakeShareable(new FJsonValueObject(SaveTradeOperation(&Data->Operations[i]))));
 	}
-	JsonObject->SetArrayField("ResourcesToLoad", ResourcesToLoad);
-
-	TArray< TSharedPtr<FJsonValue> > ResourcesToUnload;
-	for(int i = 0; i < Data->ResourcesToUnload.Num(); i++)
-	{
-		ResourcesToUnload.Add(MakeShareable(new FJsonValueObject(SaveCargo(&Data->ResourcesToUnload[i]))));
-	}
-	JsonObject->SetArrayField("ResourcesToUnload", ResourcesToUnload);
+	JsonObject->SetArrayField("Operations", Operations);
 
 	return JsonObject;
 }

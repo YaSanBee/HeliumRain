@@ -2,6 +2,8 @@
 #include "../../Flare.h"
 #include "FlareMainOverlay.h"
 
+#include "../Components/FlareObjectiveInfo.h"
+#include "../../Game/FlareGameUserSettings.h"
 #include "../../Player/FlareHUD.h"
 #include "../../Player/FlareMenuManager.h"
 
@@ -21,7 +23,7 @@ void SFlareMainOverlay::Construct(const FArguments& InArgs)
 	MenuManager = InArgs._MenuManager;
 	const FFlareStyleCatalog& Theme = FFlareStyleSet::GetDefaultTheme();
 	TitleButtonWidth = 2.0f;
-	TitleButtonHeight = 2.8f;
+	TitleButtonHeight = AFlareMenuManager::GetMainOverlayHeight() / (float)(Theme.ButtonHeight);
 
 	// Create the layout
 	ChildSlot
@@ -32,13 +34,14 @@ void SFlareMainOverlay::Construct(const FArguments& InArgs)
 		.HAlign(HAlign_Fill)
 		.VAlign(VAlign_Fill)
 		.Padding(FMargin(0))
-		.BorderImage(&Theme.BackgroundBrush)
+		.BorderImage(FCoreStyle::Get().GetBrush("NoBrush"))
 		[
-			SNew(SBorder)
+			SNew(SVerticalBox)
+
+			+ SVerticalBox::Slot()
+			.AutoHeight()
 			.HAlign(HAlign_Fill)
 			.VAlign(VAlign_Fill)
-			.Padding(FMargin(0, 0, 0, 8))
-			.BorderImage(&Theme.BackgroundBrush)
 			[
 				SAssignNew(MenuList, SHorizontalBox)
 
@@ -48,14 +51,14 @@ void SFlareMainOverlay::Construct(const FArguments& InArgs)
 				[
 					SNew(SBox)
 					.HAlign(HAlign_Fill)
-					.WidthOverride(0.9 * Theme.ContentWidth)
+					.WidthOverride(0.625 * Theme.ContentWidth)
 					[
 						SNew(SHorizontalBox)
 
 						// Title icon
 						+ SHorizontalBox::Slot()
 						.AutoWidth()
-						.VAlign(VAlign_Top)
+						.VAlign(VAlign_Center)
 						[
 							SNew(SImage)
 							.Image(this, &SFlareMainOverlay::GetCurrentMenuIcon)
@@ -65,7 +68,6 @@ void SFlareMainOverlay::Construct(const FArguments& InArgs)
 						+ SHorizontalBox::Slot()
 						.VAlign(VAlign_Center)
 						.AutoWidth()
-						.Padding(FMargin(20, 0))
 						[
 							SNew(SVerticalBox)
 
@@ -84,54 +86,144 @@ void SFlareMainOverlay::Construct(const FArguments& InArgs)
 							[
 								SNew(STextBlock)
 								.TextStyle(&Theme.TextFont)
-								.Text(this, &SFlareMainOverlay::GetSpacecraftInfo)
+								.Text(this, &SFlareMainOverlay::GetPlayerInfo)
 							]
 						]
 					]
 				]
+
+				// Objective
+				+ SHorizontalBox::Slot()
+				.AutoWidth()
+				.VAlign(VAlign_Center)
+				[
+					SNew(SFlareObjectiveInfo)
+					.PC(MenuManager->GetPC())
+					.Visibility(EVisibility::SelfHitTestInvisible)
+				]
+			]
+
+			// Bottom border
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.HAlign(HAlign_Fill)
+			[
+				SAssignNew(Border, SImage)
+				.Image(&Theme.NearInvisibleBrush)
 			]
 		]
 	];
 
-	// Add menus
-	TSharedPtr<SFlareButton> Button;
+	// Add general gameplay menus
 	AddMenuLink(EFlareMenu::MENU_Ship);
 	AddMenuLink(EFlareMenu::MENU_Sector);
 	AddMenuLink(EFlareMenu::MENU_Orbit);
 	AddMenuLink(EFlareMenu::MENU_Leaderboard);
 	AddMenuLink(EFlareMenu::MENU_Company);
 	AddMenuLink(EFlareMenu::MENU_Fleet);
-	AddMenuLink(EFlareMenu::MENU_Settings);
+	AddMenuLink(EFlareMenu::MENU_Quest);
 	AddMenuLink(EFlareMenu::MENU_Main);
 	
-	// Back button
+	// Settings
+	TSharedPtr<SFlareButton> SettingsButton;
 	MenuList->AddSlot()
 	.HAlign(HAlign_Right)
 	[
-		SAssignNew(Button, SFlareButton)
+		SAssignNew(SettingsButton, SFlareButton)
 		.Width(TitleButtonWidth)
 		.Height(TitleButtonHeight)
 		.Transparent(true)
-		.OnClicked(this, &SFlareMainOverlay::OnBack)
-		.IsDisabled(this, &SFlareMainOverlay::IsBackDisabled)
+		.OnClicked(this, &SFlareMainOverlay::OnOpenMenu, EFlareMenu::MENU_Settings)
 	];
-	SetupMenuLink(Button, FFlareStyleSet::GetIcon("Back"), LOCTEXT("BackButtonTitle", "Back"));
+	SetupMenuLink(SettingsButton, AFlareMenuManager::GetMenuIcon(EFlareMenu::MENU_Settings), AFlareMenuManager::GetMenuName(EFlareMenu::MENU_Settings), false);
 	
-	// Exit button
+	// Back, exit
+	TSharedPtr<SFlareButton> BackButton;
+	TSharedPtr<SFlareButton> ExitButton;
 	MenuList->AddSlot()
-	.HAlign(HAlign_Right)
 	.AutoWidth()
+	.HAlign(HAlign_Right)
 	[
-		SAssignNew(Button, SFlareButton)
-		.Width(TitleButtonWidth)
-		.Height(TitleButtonHeight)
-		.Transparent(true)
-		.OnClicked(this, &SFlareMainOverlay::OnCloseMenu)
+		SNew(SVerticalBox)
+
+		// Back button
+		+ SVerticalBox::Slot()
+		.AutoHeight()
+		[
+			SAssignNew(BackButton, SFlareButton)
+			.Width(TitleButtonWidth)
+			.Height(TitleButtonHeight / 2)
+			.Transparent(true)
+			.OnClicked(this, &SFlareMainOverlay::OnBack)
+			.IsDisabled(this, &SFlareMainOverlay::IsBackDisabled)
+		]
+
+		// Exit button
+		+ SVerticalBox::Slot()
+		.AutoHeight()
+		[
+			SAssignNew(ExitButton, SFlareButton)
+			.Width(TitleButtonWidth)
+			.Height(TitleButtonHeight / 2)
+			.Transparent(true)
+			.OnClicked(this, &SFlareMainOverlay::OnCloseMenu)
+			.IsDisabled(this, &SFlareMainOverlay::IsCloseDisabled)
+		]
 	];
-	SetupMenuLink(Button, AFlareMenuManager::GetMenuIcon(EFlareMenu::MENU_FlyShip), AFlareMenuManager::GetMenuName(EFlareMenu::MENU_FlyShip));
+
+	// Back, exit config
+	SetupMenuLink(BackButton, FFlareStyleSet::GetIcon("Back"), FText(), true);
+	ExitButton->GetContainer()->SetHAlign(HAlign_Center);
+	ExitButton->GetContainer()->SetVAlign(VAlign_Fill);
+	ExitButton->GetContainer()->SetPadding(FMargin(0, 5));
+	ExitButton->GetContainer()->SetContent(
+		SNew(SVerticalBox)
+
+		// Icon
+		+ SVerticalBox::Slot()
+		.AutoHeight()
+		.HAlign(HAlign_Center)
+		[
+			SNew(SBox)
+			.WidthOverride(64)
+			.HeightOverride(64)
+			[
+				SNew(SImage)
+				.Image(this, &SFlareMainOverlay::GetCloseIcon)
+			]
+		]);
 
 	// Init
 	Close();
+
+	// Setup the post process 
+	TArray<AActor*> PostProcessCandidates;
+	UGameplayStatics::GetAllActorsOfClass(MenuManager->GetPC()->GetWorld(), APostProcessVolume::StaticClass(), PostProcessCandidates);
+	if (PostProcessCandidates.Num())
+	{
+		APostProcessVolume* Volume = Cast<APostProcessVolume>(PostProcessCandidates.Last());
+		check(Volume);
+
+		FWeightedBlendable Blendable = Volume->Settings.WeightedBlendables.Array.Last();
+		UMaterial* MasterMaterial = Cast<UMaterial>(Blendable.Object);
+		if (MasterMaterial)
+		{
+			BlurMaterial = UMaterialInstanceDynamic::Create(MasterMaterial, MenuManager->GetPC()->GetWorld());
+			check(BlurMaterial);
+			
+			Volume->Settings.RemoveBlendable(MasterMaterial);
+			Volume->Settings.AddBlendable(BlurMaterial, 1.0f);
+			FLOG("SFlareMainOverlay::Construct : blur material ready");
+		}
+		else
+		{
+			FLOG("SFlareMainOverlay::Construct : no usable material found for blur");
+		}
+	}
+	else
+	{
+		FLOG("SFlareMainOverlay::Construct : no post process found");
+	}
 }
 
 void SFlareMainOverlay::AddMenuLink(EFlareMenu::Type Menu)
@@ -141,26 +233,27 @@ void SFlareMainOverlay::AddMenuLink(EFlareMenu::Type Menu)
 	// Create button
 	MenuList->AddSlot()
 	.AutoWidth()
-	.HAlign(HAlign_Left)
+	.HAlign(HAlign_Right)
 	[
 		SAssignNew(Button, SFlareButton)
 		.Width(TitleButtonWidth)
 		.Height(TitleButtonHeight)
 		.Transparent(true)
 		.OnClicked(this, &SFlareMainOverlay::OnOpenMenu, Menu)
+		.Visibility(this, &SFlareMainOverlay::GetGameButtonVisibility)
 	];
 
 	// Fill button contents
-	SetupMenuLink(Button, AFlareMenuManager::GetMenuIcon(Menu), AFlareMenuManager::GetMenuName(Menu));
+	SetupMenuLink(Button, AFlareMenuManager::GetMenuIcon(Menu), AFlareMenuManager::GetMenuName(Menu), false);
 }
 
-void SFlareMainOverlay::SetupMenuLink(TSharedPtr<SFlareButton> Button, const FSlateBrush* Icon, FText Text)
+void SFlareMainOverlay::SetupMenuLink(TSharedPtr<SFlareButton> Button, const FSlateBrush* Icon, FText Text, bool Small)
 {
 	const FFlareStyleCatalog& Theme = FFlareStyleSet::GetDefaultTheme();
 
 	Button->GetContainer()->SetHAlign(HAlign_Center);
 	Button->GetContainer()->SetVAlign(VAlign_Fill);
-	Button->GetContainer()->SetPadding(FMargin(0, 25));
+	Button->GetContainer()->SetPadding(FMargin(0, Small ? 5 : 30));
 
 	Button->GetContainer()->SetContent(
 		SNew(SVerticalBox)
@@ -228,7 +321,8 @@ void SFlareMainOverlay::Tick(const FGeometry& AllottedGeometry, const double InC
 	float ViewportScale = GetDefault<UUserInterfaceSettings>(UUserInterfaceSettings::StaticClass())->GetDPIScaleBasedOnSize(FIntPoint(ViewportSize.X, ViewportSize.Y));
 
 	// Visibility check
-	if (!IsOverlayVisible || (MousePosition.Y / ViewportScale) > AFlareMenuManager::GetMainOverlayHeight())
+	float Height = AFlareMenuManager::GetMainOverlayHeight();
+	if (!IsOverlayVisible || (MousePosition.Y / ViewportScale) > Height)
 	{
 		SetVisibility(EVisibility::HitTestInvisible);
 	}
@@ -236,11 +330,73 @@ void SFlareMainOverlay::Tick(const FGeometry& AllottedGeometry, const double InC
 	{
 		SetVisibility(EVisibility::Visible);
 	}
+
+	// Update blur material with appropriate values
+	if (IsOpen())
+	{
+		UFlareGameUserSettings* MyGameSettings = Cast<UFlareGameUserSettings>(GEngine->GetGameUserSettings());
+		float ScreenScale = MyGameSettings->ScreenPercentage / 100.0f;
+		BlurMaterial->SetVectorParameterValue("PanelPosition", FVector(0.0, 0.0, 0));
+		BlurMaterial->SetVectorParameterValue("PanelSize", FVector(ScreenScale * ViewportSize.X, ViewportScale * ScreenScale * Height, 0));
+	}
+	else
+	{
+		BlurMaterial->SetVectorParameterValue("PanelSize", FVector(0.0, 0.0, 0));
+	}
+}
+
+EVisibility SFlareMainOverlay::GetGameButtonVisibility() const
+{
+	if (MenuManager->GetPC()->GetShipPawn())
+	{
+		return EVisibility::Visible;
+	}
+	else if (MenuManager->GetCurrentMenu() == EFlareMenu::MENU_None
+		|| MenuManager->GetCurrentMenu() == EFlareMenu::MENU_Main
+		|| MenuManager->GetCurrentMenu() == EFlareMenu::MENU_NewGame
+		|| MenuManager->GetCurrentMenu() == EFlareMenu::MENU_Settings
+		|| MenuManager->GetCurrentMenu() == EFlareMenu::MENU_Credits
+		|| MenuManager->GetCurrentMenu() == EFlareMenu::MENU_Story)
+	{
+		return EVisibility::Hidden;
+	}
+	else
+	{
+		return EVisibility::Visible;
+	}
 }
 
 bool SFlareMainOverlay::IsBackDisabled() const
 {
 	return (MenuManager->HasPreviousMenu() == false);
+}
+
+bool SFlareMainOverlay::IsCloseDisabled() const
+{
+	if (MenuManager->GetCurrentMenu() == EFlareMenu::MENU_Main)
+	{
+		return false;
+	}
+	else if (MenuManager->GetPC()->GetShipPawn())
+	{
+		return false;
+	}
+	else
+	{
+		return true;
+	}
+}
+
+const FSlateBrush* SFlareMainOverlay::GetCloseIcon() const
+{
+	if (MenuManager->GetCurrentMenu() == EFlareMenu::MENU_Main)
+	{
+		return FFlareStyleSet::GetIcon("Quit");
+	}
+	else
+	{
+		return FFlareStyleSet::GetIcon("Close");
+	}
 }
 
 FText SFlareMainOverlay::GetCurrentMenuName() const
@@ -271,19 +427,35 @@ const FSlateBrush* SFlareMainOverlay::GetCurrentMenuIcon() const
 	}
 }
 
-FText SFlareMainOverlay::GetSpacecraftInfo() const
+FText SFlareMainOverlay::GetPlayerInfo() const
 {
 	AFlarePlayerController* PC = MenuManager->GetPC();
-
-	if (MenuManager->IsMenuOpen() && MenuManager->GetCurrentMenu() == EFlareMenu::MENU_None)
+	
+	if (PC->GetShipPawn())
+	{
+		return FText::Format(LOCTEXT("PlayerInfoFormat", "{0}\n{1} credits available"),
+			PC->GetShipPawn()->GetShipStatus(),
+			FText::AsNumber(PC->GetCompany()->GetMoney() / 100));
+	}
+	else if (MenuManager->GetCurrentMenu() == EFlareMenu::MENU_Main)
+	{
+		return LOCTEXT("SaveSlotHint", "Pick a save slot to start the game");
+	}
+	else if (MenuManager->GetCurrentMenu() == EFlareMenu::MENU_NewGame)
+	{
+		return LOCTEXT("NewGameHint", "Please describe your company");
+	}
+	else if (MenuManager->GetCurrentMenu() == EFlareMenu::MENU_Settings)
+	{
+		return LOCTEXT("SettingsHint", "Changes will be applied and saved automatically");
+	}
+	else if (MenuManager->GetCurrentMenu() == EFlareMenu::MENU_None
+		|| MenuManager->GetCurrentMenu() == EFlareMenu::MENU_Credits
+		|| MenuManager->GetCurrentMenu() == EFlareMenu::MENU_Story)
 	{
 		return FText();
 	}
-	else if (PC->GetShipPawn())
-	{
-		return PC->GetShipPawn()->GetShipStatus();
-	}
-	else
+	else if (!MenuManager->IsFading())
 	{
 		return LOCTEXT("FastForwarding", "Fast forwarding...");
 	}
@@ -303,7 +475,11 @@ void SFlareMainOverlay::OnBack()
 
 void SFlareMainOverlay::OnCloseMenu()
 {
-	if (MenuManager->IsMenuOpen())
+	if (MenuManager->GetCurrentMenu() == EFlareMenu::MENU_Main)
+	{
+		MenuManager->OpenMenu(EFlareMenu::MENU_Quit);
+	}
+	else if (MenuManager->IsMenuOpen())
 	{
 		MenuManager->CloseMenu();
 	}

@@ -8,6 +8,7 @@
 #include "../UI/Menus/FlareStoryMenu.h"
 #include "../UI/Menus/FlareShipMenu.h"
 #include "../UI/Menus/FlareFleetMenu.h"
+#include "../UI/Menus/FlareQuestMenu.h"
 #include "../UI/Menus/FlareOrbitalMenu.h"
 #include "../UI/Menus/FlareLeaderboardMenu.h"
 #include "../UI/Menus/FlareCompanyMenu.h"
@@ -53,6 +54,7 @@ void AFlareMenuManager::SetupMenu()
 		SAssignNew(StoryMenu, SFlareStoryMenu).MenuManager(this);
 		SAssignNew(CompanyMenu, SFlareCompanyMenu).MenuManager(this);
 		SAssignNew(FleetMenu, SFlareFleetMenu).MenuManager(this);
+		SAssignNew(QuestMenu, SFlareQuestMenu).MenuManager(this);
 		SAssignNew(ShipMenu, SFlareShipMenu).MenuManager(this);
 		SAssignNew(SectorMenu, SFlareSectorMenu).MenuManager(this);
 		SAssignNew(TradeMenu, SFlareTradeMenu).MenuManager(this);
@@ -86,6 +88,7 @@ void AFlareMenuManager::SetupMenu()
 		GEngine->GameViewport->AddViewportWidgetContent(SNew(SWeakWidget).PossiblyNullContent(StoryMenu.ToSharedRef()),          50);
 		GEngine->GameViewport->AddViewportWidgetContent(SNew(SWeakWidget).PossiblyNullContent(CompanyMenu.ToSharedRef()),        50);
 		GEngine->GameViewport->AddViewportWidgetContent(SNew(SWeakWidget).PossiblyNullContent(FleetMenu.ToSharedRef()),          50);
+		GEngine->GameViewport->AddViewportWidgetContent(SNew(SWeakWidget).PossiblyNullContent(QuestMenu.ToSharedRef()),          50);
 		GEngine->GameViewport->AddViewportWidgetContent(SNew(SWeakWidget).PossiblyNullContent(ShipMenu.ToSharedRef()),           50);
 		GEngine->GameViewport->AddViewportWidgetContent(SNew(SWeakWidget).PossiblyNullContent(SectorMenu.ToSharedRef()),         50);
 		GEngine->GameViewport->AddViewportWidgetContent(SNew(SWeakWidget).PossiblyNullContent(TradeMenu.ToSharedRef()),          50);
@@ -112,6 +115,7 @@ void AFlareMenuManager::SetupMenu()
 		CompanyMenu->Setup();
 		ShipMenu->Setup();
 		FleetMenu->Setup();
+		QuestMenu->Setup();
 		SectorMenu->Setup();
 		TradeMenu->Setup();
 		TradeRouteMenu->Setup();
@@ -292,12 +296,20 @@ void AFlareMenuManager::Confirm(FText Title, FText Text, FSimpleDelegate OnConfi
 	}
 }
 
-void AFlareMenuManager::Notify(FText Text, FText Info, FName Tag, EFlareNotification::Type Type, float Timeout, EFlareMenu::Type TargetMenu, FFlareMenuParameterData TargetInfo)
+void AFlareMenuManager::Notify(FText Text, FText Info, FName Tag, EFlareNotification::Type Type, bool Pinned, EFlareMenu::Type TargetMenu, FFlareMenuParameterData TargetInfo)
 {
 	if (MainOverlay.IsValid())
 	{
-		OrbitMenu->StopFastForward();
-		Notifier->Notify(Text, Info, Tag, Type, Timeout, TargetMenu, TargetInfo);
+		OrbitMenu->RequestStopFastForward();
+		Notifier->Notify(Text, Info, Tag, Type, Pinned, TargetMenu, TargetInfo);
+	}
+}
+
+void AFlareMenuManager::FlushNotifications()
+{
+	if (MainOverlay.IsValid())
+	{
+		Notifier->FlushNotifications();
 	}
 }
 
@@ -335,6 +347,7 @@ void AFlareMenuManager::ResetMenu()
 	CompanyMenu->Exit();
 	ShipMenu->Exit();
 	FleetMenu->Exit();
+	QuestMenu->Exit();
 	SectorMenu->Exit();
 	TradeMenu->Exit();
 	TradeRouteMenu->Exit();
@@ -384,6 +397,7 @@ void AFlareMenuManager::ProcessNextMenu()
 		case EFlareMenu::MENU_Story:              OpenStoryMenu();             break;
 		case EFlareMenu::MENU_Company:            InspectCompany();            break;
 		case EFlareMenu::MENU_Fleet:              OpenFleetMenu();             break;
+		case EFlareMenu::MENU_Quest:              OpenQuestMenu();             break;
 		case EFlareMenu::MENU_Ship:               InspectShip(false);          break;
 		case EFlareMenu::MENU_ShipConfig:         InspectShip(true);           break;
 		case EFlareMenu::MENU_Sector:             OpenSector();                break;
@@ -413,15 +427,7 @@ void AFlareMenuManager::ProcessNextMenu()
 	}
 }
 
-void AFlareMenuManager::FlushNotifications()
-{
-	if (MainOverlay.IsValid())
-	{
-		Notifier->FlushNotifications();
-	}
-}
-
-void AFlareMenuManager::OnEnterMenu(bool LightBackground , bool ShowOverlay, bool TellPlayer)
+void AFlareMenuManager::OnEnterMenu(bool LightBackground, bool ShowOverlay, bool TellPlayer)
 {
 	ResetMenu();
 	CurrentMenu = NextMenu;
@@ -526,9 +532,58 @@ void AFlareMenuManager::FlyShip()
 	AFlarePlayerController* PC = Cast<AFlarePlayerController>(GetOwner());
 	if (PC)
 	{
+		// Fly ship
 		if (NextMenu.Value.Spacecraft)
 		{
-			PC->FlyShip(NextMenu.Value.Spacecraft->GetActive());
+			AFlareSpacecraft* OldShip = PC->GetShipPawn();
+			UFlareSimulatedSpacecraft* Ship = NextMenu.Value.Spacecraft;
+			PC->FlyShip(Ship->GetActive());
+
+			if (OldShip != Ship->GetActive())
+			{
+				// Count owned ships
+				int32 OwnedSpacecraftCount = 0;
+				TArray<AFlareSpacecraft*>& SectorSpacecrafts = GetGame()->GetActiveSector()->GetSpacecrafts();
+				for (int SpacecraftIndex = 0; SpacecraftIndex < SectorSpacecrafts.Num(); SpacecraftIndex++)
+				{
+					AFlareSpacecraft* OtherSpacecraft = SectorSpacecrafts[SpacecraftIndex];
+					if (OtherSpacecraft->GetParent()->GetCompany() == PC->GetCompany())
+					{
+						OwnedSpacecraftCount++;
+					}
+				}
+
+				// Notification title
+				FText Title;
+				if (PC->GetPlayerFleet()->IsTraveling())
+				{
+					Title = FText::Format(LOCTEXT("FlyingTravelFormat", "Travelling with {0}"), FText::FromName(Ship->GetImmatriculation()));
+				}
+				else
+				{
+					Title = FText::Format(LOCTEXT("FlyingFormat", "Now flying {0}"), FText::FromName(Ship->GetImmatriculation()));
+				}
+
+				// Notification body
+				FText Info;
+				if (PC->GetPlayerFleet()->IsTraveling())
+				{
+					Info = LOCTEXT("FlyingTravelInfo", "Complete travels with the \"Fast forward\" button on the orbital map.");
+				}
+				else if (OwnedSpacecraftCount > 1)
+				{
+					Info = LOCTEXT("FlyingMultipleInfo", "You can switch to nearby ships with N.");
+				}
+				else
+				{
+					Info = LOCTEXT("FlyingInfo", "You are now flying your personal ship.");
+				}
+
+				// Notify
+				FFlareMenuParameterData Data;
+				Data.Spacecraft = Ship;
+				Notify(Title, Info, "flying-info", EFlareNotification::NT_Info, false, EFlareMenu::MENU_Ship, Data);
+			}
 		}
 
 		ExitMenu();
@@ -539,7 +594,6 @@ void AFlareMenuManager::FlyShip()
 void AFlareMenuManager::Travel()
 {
 	UFlareFleet* PlayerFleet = GetGame()->GetPC()->GetPlayerFleet();
-	UFlareFleet* SelectedFleet = GetGame()->GetPC()->GetSelectedFleet();
 
 	if (NextMenu.Value.Travel && PlayerFleet)
 	{
@@ -583,21 +637,21 @@ void AFlareMenuManager::ReloadSector()
 
 void AFlareMenuManager::OpenMainMenu()
 {
-	OnEnterMenu(true, false);
+	OnEnterMenu(true);
 	GetPC()->ExitShip();
-	GetPC()->GetGame()->SaveGame(GetPC());
+	GetPC()->GetGame()->SaveGame(GetPC(), false);
 	MainMenu->Enter();
 }
 
 void AFlareMenuManager::OpenSettingsMenu()
 {
-	OnEnterMenu(true, false);
+	OnEnterMenu(true);
 	SettingsMenu->Enter();
 }
 
 void AFlareMenuManager::OpenNewGameMenu()
 {
-	OnEnterMenu(true, false);
+	OnEnterMenu(true);
 	NewGameMenu->Enter();
 }
 
@@ -609,7 +663,7 @@ void AFlareMenuManager::OpenStoryMenu()
 
 void AFlareMenuManager::InspectCompany()
 {
-	OnEnterMenu();
+	OnEnterMenu(false);
 
 	UFlareCompany* Company = (NextMenu.Value.Company) ? NextMenu.Value.Company : GetPC()->GetCompany();
 	check(Company);
@@ -649,8 +703,14 @@ void AFlareMenuManager::InspectShip(bool IsEditable)
 
 void AFlareMenuManager::OpenFleetMenu()
 {
-	OnEnterMenu();
+	OnEnterMenu(false);
 	FleetMenu->Enter(NextMenu.Value.Fleet);
+}
+
+void AFlareMenuManager::OpenQuestMenu()
+{
+	OnEnterMenu(false);
+	QuestMenu->Enter(NextMenu.Value.Quest);
 }
 
 void AFlareMenuManager::OpenSector()
@@ -711,7 +771,7 @@ void AFlareMenuManager::OpenLeaderboard()
 
 void AFlareMenuManager::OpenResourcePrices()
 {
-	OnEnterMenu(false);
+	OnEnterMenu();
 	ResourcePricesMenu->Enter(NextMenu.Value.Sector);
 }
 
@@ -754,14 +814,15 @@ FText AFlareMenuManager::GetMenuName(EFlareMenu::Type MenuType)
 	switch (MenuType)
 	{
 		case EFlareMenu::MENU_None:           Name = LOCTEXT("NoneMenuName", "");                          break;
-		case EFlareMenu::MENU_Main:           Name = LOCTEXT("MainMenuName", "Save & quit");               break;
+		case EFlareMenu::MENU_Main:           Name = LOCTEXT("MainMenuName", "Load game");                 break;
 		case EFlareMenu::MENU_NewGame:        Name = LOCTEXT("NewGameMenuName", "New game");               break;
 		case EFlareMenu::MENU_Company:        Name = LOCTEXT("CompanyMenuName", "Company");                break;
 		case EFlareMenu::MENU_Leaderboard:    Name = LOCTEXT("LeaderboardMenuName", "Leaderboard");        break;
-		case EFlareMenu::MENU_ResourcePrices: Name = LOCTEXT("ResourcePricesMenuName", "Local economy");   break;
-		case EFlareMenu::MENU_WorldEconomy:   Name = LOCTEXT("WorldEconomyMenuName", "World economy");     break;
+		case EFlareMenu::MENU_ResourcePrices: Name = LOCTEXT("ResourcePricesMenuName", "Local prices");    break;
+		case EFlareMenu::MENU_WorldEconomy:   Name = LOCTEXT("WorldEconomyMenuName", "World prices");      break;
 		case EFlareMenu::MENU_Ship:           Name = LOCTEXT("ShipMenuName", "Ship");                      break;
 		case EFlareMenu::MENU_Fleet:          Name = LOCTEXT("FleetMenuName", "Fleets");                   break;
+		case EFlareMenu::MENU_Quest:          Name = LOCTEXT("QuestMenuName", "Quests");                   break;
 		case EFlareMenu::MENU_Station:        Name = LOCTEXT("StationMenuName", "Station");                break;
 		case EFlareMenu::MENU_ShipConfig:     Name = LOCTEXT("ShipConfigMenuName", "Ship upgrade");        break;
 		case EFlareMenu::MENU_Travel:         Name = LOCTEXT("TravelMenuName", "Travel");                  break;
@@ -777,7 +838,7 @@ FText AFlareMenuManager::GetMenuName(EFlareMenu::Type MenuType)
 	return Name;
 }
 
-const FSlateBrush* AFlareMenuManager::GetMenuIcon(EFlareMenu::Type MenuType, bool ButtonVersion)
+const FSlateBrush* AFlareMenuManager::GetMenuIcon(EFlareMenu::Type MenuType)
 {
 	FString Path;
 
@@ -791,22 +852,18 @@ const FSlateBrush* AFlareMenuManager::GetMenuIcon(EFlareMenu::Type MenuType, boo
 		case EFlareMenu::MENU_WorldEconomy:   Path = "Sector";       break;
 		case EFlareMenu::MENU_Ship:           Path = "Ship";         break;
 		case EFlareMenu::MENU_Fleet:          Path = "Fleet";        break;
+		case EFlareMenu::MENU_Quest:          Path = "Quest";        break;
 		case EFlareMenu::MENU_Station:        Path = "Station";      break;
 		case EFlareMenu::MENU_ShipConfig:     Path = "ShipUpgrade";  break;
 		case EFlareMenu::MENU_Travel:         Path = "Travel";       break;
 		case EFlareMenu::MENU_Sector:         Path = "Sector";       break;
 		case EFlareMenu::MENU_Trade:          Path = "Trade";        break;
-		case EFlareMenu::MENU_TradeRoute:     Path = "TradeRoute";   break;
+		case EFlareMenu::MENU_TradeRoute:     Path = "Trade";        break;
 		case EFlareMenu::MENU_Orbit:          Path = "Orbit";        break;
 		case EFlareMenu::MENU_Settings:       Path = "Settings";     break;
 		case EFlareMenu::MENU_Quit:           Path = "Quit";         break;
 		case EFlareMenu::MENU_FlyShip:        Path = "Close";        break;
 		default:                              Path = "Empty";
-	}
-
-	if (ButtonVersion)
-	{
-		Path += "_Button";
 	}
 
 	return FFlareStyleSet::GetIcon(Path);
@@ -847,6 +904,11 @@ EFlareMenu::Type AFlareMenuManager::GetCurrentMenu() const
 	return CurrentMenu.Key;
 }
 
+EFlareMenu::Type AFlareMenuManager::GetNextMenu() const
+{
+	return NextMenu.Key;
+}
+
 AFlareGame* AFlareMenuManager::GetGame() const
 {
 	return GetPC()->GetGame();
@@ -857,19 +919,19 @@ AFlarePlayerController* AFlareMenuManager::GetPC() const
 	return Cast<AFlarePlayerController>(GetOwner());
 }
 
-AFlareMenuManager* AFlareMenuManager::GetSingleton()
+TSharedPtr<SFlareShipMenu> AFlareMenuManager::GetShipMenu() const
 {
-	return Singleton;
+	return ShipMenu;
 }
 
 int32 AFlareMenuManager::GetMainOverlayHeight()
 {
-	return 135;
+	return 150;
 }
 
-TSharedPtr<SFlareShipMenu> AFlareMenuManager::GetShipMenu()
+AFlareMenuManager* AFlareMenuManager::GetSingleton()
 {
-	return ShipMenu;
+	return Singleton;
 }
 
 

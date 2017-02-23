@@ -151,6 +151,14 @@ void UFlareQuest::NextStep()
 			CurrentStepDescription = &QuestDescription->Steps[StepIndex];
 			FLOGV("Quest %s step %s begin", *GetIdentifier().ToString(), *CurrentStepDescription->Identifier.ToString());
 			PerformActions(CurrentStepDescription->InitActions);
+
+			// Notify message only when it's different than previous step
+			if (StepIndex == 0 || QuestDescription->Steps[StepIndex - 1].StepDescription.ToString() != CurrentStepDescription->StepDescription.ToString())
+			{
+				FText MessageText = FormatTags(CurrentStepDescription->StepDescription);
+				SendQuestNotification(MessageText, FName(*(FString("quest-") + GetIdentifier().ToString() + "-message")));
+			}
+
 			QuestManager->LoadCallbacks(this);
 			UpdateState();
 			return;
@@ -463,14 +471,14 @@ void UFlareQuest::PerformAction(const FFlareQuestActionDescription* Action)
 		break;
 	}
 	case EFlareQuestAction::PRINT_MESSAGE:
-		for (int i = 0; i < Action->MessagesParameter.Num(); i++)
-		{
-			//Replace tags in quests text
-			FText MessageText = FormatTags(Action->MessagesParameter[i].MessageText);
 
-			SendQuestNotification(MessageText, FName(*(FString("quest-")+GetIdentifier().ToString()+"-message")));
+		// Replace tags in quests text
+		{
+			FText MessageText = FormatTags(Action->MessagesParameter);
+			SendQuestNotification(MessageText, FName(*(FString("quest-") + GetIdentifier().ToString() + "-message")));
 		}
 		break;
+
 	default:
 		FLOGV("ERROR: PerformAction not implemented for action type %d", (int)(Action->Type +0));
 		break;
@@ -585,9 +593,8 @@ FText UFlareQuest::FormatTags(FText Message)
 void UFlareQuest::SendQuestNotification(FText Message, FName Tag)
 {
 	FText Text = GetQuestName();
-	float Duration = 10 + Message.ToString().Len() / 10.0f;
 	FLOGV("UFlareQuest::SendQuestNotification : %s", *Message.ToString());
-	QuestManager->GetGame()->GetPC()->Notify(Text, Message, Tag, EFlareNotification::NT_Quest, Duration);
+	QuestManager->GetGame()->GetPC()->Notify(Text, Message, Tag, EFlareNotification::NT_Quest, true);
 }
 
 
@@ -637,7 +644,7 @@ void UFlareQuest::UpdateObjectiveTracker()
 	{
 		Objective.StepsDone = QuestData.SuccessfullSteps.Num();
 		Objective.StepsCount = GetQuestDescription()->Steps.Num();
-		Objective.Description = GetCurrentStepDescription()->Description;
+		Objective.Description = GetQuestDescription()->QuestDescription;
 		Objective.Name = GetQuestName();
 	}
 
@@ -669,6 +676,38 @@ void UFlareQuest::AddConditionObjectives(FFlarePlayerObjectiveData* ObjectiveDat
 			}
 			break;
 		}
+
+		case EFlareQuestCondition::FLYING_SHIP:
+		{
+			FFlareSpacecraftDescription* SpacecraftDesc = QuestManager->GetGame()->GetSpacecraftCatalog()->Get(Condition->Identifier1);
+			check(SpacecraftDesc);
+
+			FFlarePlayerObjectiveCondition ObjectiveCondition;
+			ObjectiveCondition.InitialLabel = FText::Format(LOCTEXT("FlyShipFormat", "Fly a {0}-class ship"), SpacecraftDesc->Name);
+			ObjectiveCondition.TerminalLabel = FText();
+			ObjectiveCondition.Progress = 0;
+			ObjectiveCondition.MaxProgress = 0;
+			ObjectiveCondition.Counter = (Spacecraft && Spacecraft->GetDescription()->Identifier == Condition->Identifier1) ? 1 : 0;
+			ObjectiveCondition.MaxCounter = 1;
+
+			ObjectiveData->ConditionList.Add(ObjectiveCondition);
+			break;
+		}
+		case EFlareQuestCondition::SHIP_ALIVE:
+		{
+			UFlareSimulatedSpacecraft* TargetSpacecraft = QuestManager->GetGame()->GetGameWorld()->FindSpacecraft(Condition->Identifier1);
+
+			FFlarePlayerObjectiveCondition ObjectiveCondition;
+			ObjectiveCondition.InitialLabel = FText::Format(LOCTEXT("ShipAliveFormat", "{0} must stay alive"), FText::FromName(Condition->Identifier1));
+			ObjectiveCondition.TerminalLabel = FText();
+			ObjectiveCondition.Progress = 0;
+			ObjectiveCondition.MaxProgress = 0;
+			ObjectiveCondition.Counter = (TargetSpacecraft && TargetSpacecraft->GetDamageSystem()->IsAlive()) ? 1 : 0;
+			ObjectiveCondition.MaxCounter = 1;
+
+			ObjectiveData->ConditionList.Add(ObjectiveCondition);
+			break;
+		}
 		case EFlareQuestCondition::SHIP_MIN_COLLINEAR_VELOCITY:
 		{
 			float Velocity = Spacecraft ? FVector::DotProduct(Spacecraft->GetLinearVelocity(), Spacecraft->GetFrontVector()) : 0;
@@ -683,14 +722,20 @@ void UFlareQuest::AddConditionObjectives(FFlarePlayerObjectiveData* ObjectiveDat
 			ObjectiveCondition.MaxCounter = 0;
 
 			FFlareQuestStepProgressSave* ProgressSave = GetCurrentStepProgressSave(Condition);
-			if (ProgressSave)
+			if (ProgressSave) // TODO #402 : investigate why this can be NULL
 			{
 				ObjectiveCondition.MaxProgress = FMath::Abs(ProgressSave->InitialVelocity - Condition->FloatParam1);
 				ObjectiveCondition.Progress = ObjectiveCondition.MaxProgress - FMath::Abs(Velocity - Condition->FloatParam1);
-				if (Velocity > Condition->FloatParam1)
-				{
-					ObjectiveCondition.Progress = ObjectiveCondition.MaxProgress;
-				}
+			}
+			else
+			{
+				ObjectiveCondition.MaxProgress = FMath::Abs(Condition->FloatParam1);
+				ObjectiveCondition.Progress = Velocity;
+			}
+
+			if (Velocity > Condition->FloatParam1)
+			{
+				ObjectiveCondition.Progress = ObjectiveCondition.MaxProgress;
 			}
 
 			ObjectiveData->ConditionList.Add(ObjectiveCondition);
@@ -701,24 +746,30 @@ void UFlareQuest::AddConditionObjectives(FFlarePlayerObjectiveData* ObjectiveDat
 		{
 			float Velocity = Spacecraft ? FVector::DotProduct(Spacecraft->GetLinearVelocity(), Spacecraft->GetFrontVector()) : 0;
 
-			FText ReachSpeedText = LOCTEXT("ReachMaxSpeedFormat", "Fly at less than {0} m/s forward");
+			FText ReachSpeedText = LOCTEXT("ReachMaxSpeedFormat", "Reach at least {0} m/s backward");
 			FText ReachSpeedShortText = LOCTEXT("ReachMaxSpeedShortFormat", "{0} m/s");
 
 			FFlarePlayerObjectiveCondition ObjectiveCondition;
-			ObjectiveCondition.InitialLabel = FText::Format(ReachSpeedText, FText::AsNumber((int)(Condition->FloatParam1)));
+			ObjectiveCondition.InitialLabel = FText::Format(ReachSpeedText, FText::AsNumber((int)(-Condition->FloatParam1)));
 			ObjectiveCondition.TerminalLabel = FText::Format(ReachSpeedShortText, FText::AsNumber((int)(Velocity)));
 			ObjectiveCondition.Counter = 0;
 			ObjectiveCondition.MaxCounter = 0;
 
 			FFlareQuestStepProgressSave* ProgressSave = GetCurrentStepProgressSave(Condition);
-			if (ProgressSave)
+			if (ProgressSave) // TODO #402 : investigate why this can be NULL
 			{
 				ObjectiveCondition.MaxProgress = FMath::Abs(ProgressSave->InitialVelocity - Condition->FloatParam1);
 				ObjectiveCondition.Progress = ObjectiveCondition.MaxProgress - FMath::Abs(Velocity - Condition->FloatParam1);
-				if (Velocity < Condition->FloatParam1)
-				{
-					ObjectiveCondition.Progress = ObjectiveCondition.MaxProgress;
-				}
+			}
+			else
+			{
+				ObjectiveCondition.MaxProgress = Condition->FloatParam1;
+				ObjectiveCondition.Progress = Velocity;
+			}
+
+			if (Velocity < Condition->FloatParam1)
+			{
+				ObjectiveCondition.Progress = ObjectiveCondition.MaxProgress;
 			}
 
 			ObjectiveData->ConditionList.Add(ObjectiveCondition);
@@ -787,7 +838,7 @@ void UFlareQuest::AddConditionObjectives(FFlarePlayerObjectiveData* ObjectiveDat
 		case EFlareQuestCondition::SHIP_FOLLOW_RELATIVE_WAYPOINTS:
 		{
 			FFlarePlayerObjectiveCondition ObjectiveCondition;
-			ObjectiveCondition.InitialLabel = LOCTEXT("FollowWaypoints", "Follow waypoints");
+			ObjectiveCondition.InitialLabel = LOCTEXT("FollowWaypoints", "Fly to waypoints");
 			ObjectiveCondition.TerminalLabel = FText::GetEmpty();
 			ObjectiveCondition.Counter = 0;
 			ObjectiveCondition.MaxCounter = Condition->VectorListParam.Num();
@@ -825,10 +876,39 @@ void UFlareQuest::AddConditionObjectives(FFlarePlayerObjectiveData* ObjectiveDat
 			ObjectiveData->ConditionList.Add(ObjectiveCondition);
 			break;
 		}
+
 		case EFlareQuestCondition::SECTOR_VISITED:
+		{
+			UFlareSimulatedSector* TargetSector = QuestManager->GetGame()->GetGameWorld()->FindSector(Condition->Identifier1);
+
+			FFlarePlayerObjectiveCondition ObjectiveCondition;
+			ObjectiveCondition.InitialLabel = FText::Format(LOCTEXT("VisitSectorFormat", "Visit the sector \"{0}\""), TargetSector->GetSectorName());
+			ObjectiveCondition.TerminalLabel = FText();
+			ObjectiveCondition.Progress = 0;
+			ObjectiveCondition.MaxProgress = 0;
+			ObjectiveCondition.Counter = QuestManager->GetGame()->GetPC()->GetCompany()->HasVisitedSector(TargetSector) ? 1 : 0;
+			ObjectiveCondition.MaxCounter = 0;
+			
+			ObjectiveData->ConditionList.Add(ObjectiveCondition);
 			break;
+		}
+
 		case EFlareQuestCondition::SECTOR_ACTIVE:
+		{
+			UFlareSimulatedSector* TargetSector = QuestManager->GetGame()->GetGameWorld()->FindSector(Condition->Identifier1);
+
+			FFlarePlayerObjectiveCondition ObjectiveCondition;
+			ObjectiveCondition.InitialLabel = FText::Format(LOCTEXT("BeInSectorFormat", "Fly in the sector \"{0}\""), TargetSector->GetSectorName());
+			ObjectiveCondition.TerminalLabel = FText();
+			ObjectiveCondition.Progress = 0;
+			ObjectiveCondition.MaxProgress = 0;
+			ObjectiveCondition.Counter = (TargetSector && Spacecraft && TargetSector == Spacecraft->GetParent()->GetCurrentSector()) ? 1 : 0;
+			ObjectiveCondition.MaxCounter = 1;
+
+			ObjectiveData->ConditionList.Add(ObjectiveCondition);
 			break;
+		}
+
 		default:
 			FLOGV("ERROR: UpdateObjectiveTracker not implemented for condition type %d", (int)(Condition->Type +0));
 			break;
@@ -1028,6 +1108,19 @@ void UFlareQuest::OnSectorVisited(UFlareSimulatedSector* Sector)
 /*----------------------------------------------------
 	Getters
 ----------------------------------------------------*/
+
+FText UFlareQuest::GetStatusText() const
+{
+	switch (QuestStatus)
+	{
+		case EFlareQuestStatus::AVAILABLE:    return LOCTEXT("QuestAvailable", "Available");   break;
+		case EFlareQuestStatus::ACTIVE:       return LOCTEXT("QuestActive", "Active");         break;
+		case EFlareQuestStatus::SUCCESSFUL:   return LOCTEXT("QuestCompleted", "Completed");   break;
+		case EFlareQuestStatus::ABANDONNED:   return LOCTEXT("QuestAbandonned", "Abandonned"); break;
+		case EFlareQuestStatus::FAILED:       return LOCTEXT("QuestFailed", "Failed");         break;
+		default:                              return LOCTEXT("QuestUnknown", "Unknown");       break;
+	}
+}
 
 const FFlareSharedQuestCondition* UFlareQuest::FindSharedCondition(FName SharedConditionIdentifier)
 {

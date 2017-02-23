@@ -432,8 +432,7 @@ void AFlareHUD::DrawCockpitEquipment(AFlareSpacecraft* PlayerShip)
 
 			// Final strings
 			TitleText = CurrentWeaponGroup->Description->Name;
-			InfoText = FText::Format(LOCTEXT("WeaponInfoFormat", "{0}x {1} - {2}%"),
-				FText::AsNumber(CurrentWeaponGroup->Weapons.Num()),
+			InfoText = FText::Format(LOCTEXT("WeaponInfoFormat", "{0} - {1}%"),
 				FText::Format(LOCTEXT("Rounds", "{0} rounds"), FText::AsNumber(RemainingAmmo)),
 				FText::AsNumber((int32)(100 * ComponentHealth)));
 		}
@@ -558,9 +557,20 @@ void AFlareHUD::DrawCockpitTarget(AFlareSpacecraft* PlayerShip)
 
 	if (CurrentSector)
 	{
-		FText SectorText = FText::Format(LOCTEXT("CurrentSectorFormat", "Current sector : {0} ({1})"),
-			CurrentSector->GetSimulatedSector()->GetSectorName(),
-			CurrentSector->GetSimulatedSector()->GetSectorFriendlynessText(PlayerShip->GetParent()->GetCompany()));
+		// Get text
+		FText SectorText;
+		if (PlayerShip->GetParent()->GetCurrentFleet()->IsTraveling())
+		{
+			SectorText = PlayerShip->GetParent()->GetCurrentFleet()->GetStatusInfo();
+		}
+		else
+		{
+			SectorText = FText::Format(LOCTEXT("CurrentSectorFormat", "Current sector : {0} ({1})"),
+				CurrentSector->GetSimulatedSector()->GetSectorName(),
+				CurrentSector->GetSimulatedSector()->GetSectorFriendlynessText(PlayerShip->GetParent()->GetCompany()));
+		}
+
+		// Draw
 		FlareDrawText(SectorText.ToString(), CurrentPos, Theme.FriendlyColor, false);
 		CurrentPos += InstrumentLine;
 

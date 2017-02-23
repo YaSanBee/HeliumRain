@@ -210,6 +210,8 @@ void AFlareBomb::NotifyHit(class UPrimitiveComponent* MyComp, class AActor* Othe
 		if (DecalMaterialInst)
 		{
 			DecalMaterialInst->SetScalarParameterValue("RandomParameter", FMath::FRandRange(1, 0));
+			DecalMaterialInst->SetScalarParameterValue("RandomParameter2", FMath::FRandRange(1, 0));
+			DecalMaterialInst->SetScalarParameterValue("IsShipHull", ShipComponent->IsA(UFlareSpacecraftComponent::StaticClass()));
 			Decal->SetMaterial(0, DecalMaterialInst);
 		}
 	}
@@ -254,7 +256,7 @@ void AFlareBomb::OnSpacecraftHit(AFlareSpacecraft* HitSpacecraft, UFlareSpacecra
 					FText::FromString(HitSpacecraft->GetImmatriculation().ToString())),
 				FName("ship-harpooned"),
 				EFlareNotification::NT_Military,
-				10.0f,
+				false,
 				EFlareMenu::MENU_Ship,
 				Data);
 		}

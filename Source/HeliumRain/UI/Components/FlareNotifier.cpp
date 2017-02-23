@@ -21,7 +21,7 @@ void SFlareNotifier::Construct(const FArguments& InArgs)
 	ChildSlot
 	.VAlign(VAlign_Top)
 	.HAlign(HAlign_Right)
-	.Padding(FMargin(0, 220, 0, 0))
+	.Padding(FMargin(0, AFlareMenuManager::GetMainOverlayHeight() + 10, 0, 0))
 	[
 		SNew(SBox)
 		.HeightOverride(800)
@@ -35,7 +35,7 @@ void SFlareNotifier::Construct(const FArguments& InArgs)
 			[
 				SNew(SFlareObjectiveInfo)
 				.PC(MenuManager->GetPC())
-				.Visibility(EVisibility::SelfHitTestInvisible)
+				.Visibility(this, &SFlareNotifier::GetObjectiveVisibility)
 			]
 
 			// Notifications
@@ -53,7 +53,7 @@ void SFlareNotifier::Construct(const FArguments& InArgs)
 	Interaction
 ----------------------------------------------------*/
 
-void SFlareNotifier::Notify(FText Text, FText Info, FName Tag, EFlareNotification::Type Type, float Timeout, EFlareMenu::Type TargetMenu, FFlareMenuParameterData TargetInfo)
+void SFlareNotifier::Notify(FText Text, FText Info, FName Tag, EFlareNotification::Type Type, bool Pinned, EFlareMenu::Type TargetMenu, FFlareMenuParameterData TargetInfo)
 {
 	// Remove notification with the same tag.
 	if (Tag != NAME_None)
@@ -79,7 +79,7 @@ void SFlareNotifier::Notify(FText Text, FText Info, FName Tag, EFlareNotificatio
 			.Info(Info)
 			.Type(Type)
 			.Tag(Tag)
-			.Timeout(Timeout)
+			.Pinned(Pinned)
 			.TargetMenu(TargetMenu)
 			.TargetInfo(TargetInfo)
 		];
@@ -103,8 +103,21 @@ void SFlareNotifier::FlushNotifications()
 
 void SFlareNotifier::Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime)
 {
-	SCompoundWidget::Tick(AllottedGeometry, InCurrentTime, InDeltaTime);
 	int32 NotificationCount = 0;
+
+	// Don't show notifications in story menu
+	if (MenuManager->GetCurrentMenu() == EFlareMenu::MENU_Story
+		|| MenuManager->GetNextMenu() == EFlareMenu::MENU_Story)
+	{
+		NotificationContainer->SetVisibility(EVisibility::Hidden);
+	}
+	else
+	{
+		NotificationContainer->SetVisibility(EVisibility::SelfHitTestInvisible);
+	}
+
+	// Tick parent
+	SCompoundWidget::Tick(AllottedGeometry, InCurrentTime, InDeltaTime);
 
 	// Destroy notifications when they're done with the animation
 	for (auto& NotificationEntry : NotificationData)
@@ -123,6 +136,18 @@ void SFlareNotifier::Tick(const FGeometry& AllottedGeometry, const double InCurr
 	if (NotificationCount == 0)
 	{
 		NotificationData.Empty();
+	}
+}
+
+EVisibility SFlareNotifier::GetObjectiveVisibility() const
+{
+	if (MenuManager->IsUIOpen())
+	{
+		return EVisibility::Collapsed;
+	}
+	else
+	{
+		return EVisibility::SelfHitTestInvisible;
 	}
 }
 

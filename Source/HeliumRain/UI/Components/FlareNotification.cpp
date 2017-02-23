@@ -35,7 +35,7 @@ void SFlareNotification::Construct(const FArguments& InArgs)
 	TargetMenu = InArgs._TargetMenu;
 	TargetInfo = InArgs._TargetInfo;
 	Tag = InArgs._Tag;
-	NotificationTimeout = InArgs._Timeout;
+	NotificationTimeout = InArgs._Pinned ? 0 : 7.0f;
 	FLOGV("SFlareNotification::Construct : notifying '%s'", *InArgs._Text.ToString());
 
 	// Create the layout
@@ -80,26 +80,48 @@ void SFlareNotification::Construct(const FArguments& InArgs)
 							SNew(SBorder)
 							.BorderImage(&Theme.BackgroundBrush)
 							.BorderBackgroundColor(this, &SFlareNotification::GetNotificationBackgroundColor)
-							.Padding(Theme.ContentPadding)
+							.Padding(Theme.SmallContentPadding)
 							[
 								SNew(SVerticalBox)
 
 								// Header
 								+ SVerticalBox::Slot()
 								.AutoHeight()
-								.Padding(Theme.SmallContentPadding)
 								[
-									SNew(STextBlock)
-									.Text(InArgs._Text)
-									.WrapTextAt(NotificationTextWidth)
-									.TextStyle(&Theme.NameFont)
-									.ColorAndOpacity(this, &SFlareNotification::GetNotificationTextColor)
-									.ShadowColorAndOpacity(ShadowColor)
+									SNew(SHorizontalBox)
+
+									// Title
+									+ SHorizontalBox::Slot()
+									.HAlign(HAlign_Fill)
+									.Padding(Theme.SmallContentPadding)
+									[
+										SNew(STextBlock)
+										.Text(InArgs._Text)
+										.WrapTextAt(NotificationTextWidth)
+										.TextStyle(&Theme.NameFont)
+										.ColorAndOpacity(this, &SFlareNotification::GetNotificationTextColor)
+										.ShadowColorAndOpacity(ShadowColor)
+									]
+
+									// Close button
+									+ SHorizontalBox::Slot()
+									.AutoWidth()
+									.HAlign(HAlign_Right)
+									[
+										SNew(SFlareButton)
+										.Width(1)
+										.Transparent(true)
+										.Text(FText())
+										.HelpText(LOCTEXT("DismissInfo", "Dismiss this notification"))
+										.Icon(FFlareStyleSet::GetIcon("Delete"))
+										.OnClicked(this, &SFlareNotification::OnNotificationDismissed)
+									]
 								]
 
 								// Info
 								+ SVerticalBox::Slot()
 								.AutoHeight()
+								.Padding(Theme.SmallContentPadding)
 								[
 									SNew(STextBlock)
 									.Text(InArgs._Info)
@@ -107,6 +129,44 @@ void SFlareNotification::Construct(const FArguments& InArgs)
 									.TextStyle(&Theme.TextFont)
 									.ColorAndOpacity(this, &SFlareNotification::GetNotificationTextColor)
 									.ShadowColorAndOpacity(ShadowColor)
+								]
+
+								// Icons
+								+ SVerticalBox::Slot()
+								.AutoHeight()
+								.HAlign(HAlign_Left)
+								.VAlign(VAlign_Center)
+								.Padding(NotificatioNWidth - 55, Theme.SmallContentPadding.Top, Theme.SmallContentPadding.Right, Theme.SmallContentPadding.Bottom)
+								[
+									SNew(SHorizontalBox)
+
+									// Clickable
+									+ SHorizontalBox::Slot()
+									.AutoWidth()
+									[
+										SNew(SImage)
+										.Image(FFlareStyleSet::GetIcon("Clickable"))
+										.Visibility(this, &SFlareNotification::GetClickableIconVisibility)
+										.ColorAndOpacity(this, &SFlareNotification::GetNotificationTextColor)
+									]
+
+									// Lifetime
+									+ SHorizontalBox::Slot()
+									.HAlign(HAlign_Center)
+									.VAlign(VAlign_Center)
+									[
+										SNew(SBox)
+										.WidthOverride(this, &SFlareNotification::GetLifetimeSize)
+										.HeightOverride(this, &SFlareNotification::GetLifetimeSize)
+										.Visibility(this, &SFlareNotification::GetLifetimeIconVisibility)
+										.HAlign(HAlign_Fill)
+										.VAlign(VAlign_Fill)
+										[
+											SNew(SImage)
+											.Image(FFlareStyleSet::GetIcon("Lifetime"))
+											.ColorAndOpacity(this, &SFlareNotification::GetNotificationTextColor)
+										]
+									]
 								]
 							]
 						]
@@ -164,11 +224,8 @@ void SFlareNotification::Tick(const FGeometry& AllottedGeometry, const double In
 {
 	SCompoundWidget::Tick(AllottedGeometry, InCurrentTime, InDeltaTime);
 
-	// Update lifetime only if lifetime is forced or if this the first notification
-	if (Notifier->IsFirstNotification(this) || ForcedLife || Lifetime <= NotificationEnterDuration)
-	{
-		Lifetime += InDeltaTime;
-	}
+	Lifetime += InDeltaTime;
+
 	float Ease = 2;
 	float AnimationTime = NotificationExitDuration / 2;
 	float TimeToFade = (NotificationTimeout > 0 ? NotificationTimeout - Lifetime - 2 * AnimationTime : 2 * AnimationTime);
@@ -227,6 +284,43 @@ FSlateColor SFlareNotification::GetNotificationBackgroundColor() const
 	return Result;
 }
 
+EVisibility SFlareNotification::GetClickableIconVisibility() const
+{
+	if (TargetMenu != EFlareMenu::MENU_None)
+	{
+		return EVisibility::Visible;
+	}
+	else
+	{
+		return EVisibility::Hidden;
+	}
+}
+
+EVisibility SFlareNotification::GetLifetimeIconVisibility() const
+{
+	if (NotificationTimeout == 0)
+	{
+		return EVisibility::Collapsed;
+	}
+	else
+	{
+		return EVisibility::Visible;
+	}
+}
+
+FOptionalSize  SFlareNotification::GetLifetimeSize() const
+{
+	float InitialSize = 24.0f;
+	if (NotificationTimeout == 0)
+	{
+		return InitialSize;
+	}
+	else
+	{
+		return FMath::Clamp(1.0f - Lifetime / NotificationTimeout, 0.0f, 1.0f) * InitialSize;
+	}
+}
+
 FMargin SFlareNotification::GetNotificationMargins() const
 {
 	FMargin Result(0);
@@ -236,16 +330,18 @@ FMargin SFlareNotification::GetNotificationMargins() const
 	return Result;
 }
 
+void SFlareNotification::OnNotificationDismissed()
+{
+	Finish();
+}
+
 FReply SFlareNotification::OnNotificationClicked()
 {
-	// Call if necessary
 	if (TargetMenu != EFlareMenu::MENU_None)
 	{
 		MenuManager->OpenMenu(TargetMenu, TargetInfo);
 	}
 
-	// Set the lifetime to "almost done"
-	Finish();
 	return FReply::Handled();
 }
 
